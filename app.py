@@ -1,3 +1,4 @@
+%%writefile app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -15,11 +16,14 @@ def load_data_and_train():
     # Pastikan file CSV ini diunggah ke GitHub bersama app.py
     df = pd.read_csv('Dataset Klasifikasi - Copy.csv', sep=';', encoding='latin1')
     df.columns = df.columns.str.strip().str.lower()
-    for col in df.select_dtypes(include='object').columns:
-        df[col] = df[col].astype(str).str.strip().str.lower()
+    
+    # Pembersihan dasar
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].astype(str).str.strip().str.lower()
 
     df['age'] = df['age'].replace(['nan', '(blanks)', 'none'], 'tidak diketahui')
-    df['kecepatan'] = pd.to_numeric(df['kecepatan'], errors='coerce').fillna(df['kecepatan'].median())
+    df['kecepatan'] = pd.to_numeric(df['kecepatan'], errors='coerce').fillna(df[df['kecepatan'].notnull()]['kecepatan'].median() if 'kecepatan' in df.columns else 40)
 
     selected_features = [
         'cuaca', 'tipe cahaya', 'direction', 'kelas jalan',
@@ -54,22 +58,26 @@ with st.spinner('Menginisialisasi AI...'):
 st.markdown("<div style='background: linear-gradient(135deg, #f1c40f 0%, #f39c12 100%); padding: 20px; border-radius: 15px; text-align: center; color: #2c3e50;'><h1>🚗 Accident Risk Predictor</h1><p>Estimasi Tingkat Keparahan Kecelakaan Kab. Gresik</p></div>", unsafe_allow_html=True)
 
 # Sidebar
-with st.sidebar:
-    st.header("📝 Input Parameter")
-    inputs = {}
-    for col in features:
-        if df_raw[col].dtype == 'object':
-            inputs[col] = st.selectbox(col.replace('_',' ').title(), sorted(df_raw[col].unique()))
+st.sidebar.header("📝 Input Parameter")
+inputs = {}
+for col in features:
+    # Logika perbaikan: Cek tipe data secara eksplisit agar tidak salah membuat slider
+    if df_raw[col].dtype == 'object' or col != 'kecepatan':
+        if df_raw[col].dtype != 'int64' and df_raw[col].dtype != 'float64':
+            inputs[col] = st.sidebar.selectbox(col.replace('_',' ').title(), sorted(df_raw[col].unique()))
         else:
-            inputs[col] = st.slider(col.title(), int(df_raw[col].min()), int(df_raw[col].max()), int(df_raw[col].median()))
+            inputs[col] = st.sidebar.slider(col.title(), int(df_raw[col].min()), int(df_raw[col].max()), int(df_raw[col].median()))
+    else:
+        inputs[col] = st.sidebar.slider(col.title(), int(df_raw[col].min()), int(df_raw[col].max()), int(df_raw[col].median()))
 
 # Main Predict Logic
 st.write(" ")
 if st.button("PREDIKSI RISIKO", use_container_width=True):
     data_in = pd.DataFrame([inputs])
-    for c in data_in.select_dtypes(include='object').columns:
-        data_in[c] = data_in[c].astype(str).str.lower().str.strip()
-    
+    for c in data_in.columns:
+        if data_in[c].dtype == 'object':
+            data_in[c] = data_in[c].astype(str).str.lower().str.strip()
+
     data_enc = pd.get_dummies(data_in).reindex(columns=fitur_model, fill_value=0)
 
     p_acc = model_smote.predict_proba(data_enc)[0]
