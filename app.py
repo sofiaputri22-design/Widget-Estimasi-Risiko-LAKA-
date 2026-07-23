@@ -1,4 +1,3 @@
-%%writefile app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,17 +12,16 @@ st.set_page_config(page_title='Accident Risk Predictor', layout='wide')
 
 @st.cache_resource
 def load_data_and_train():
-    # Pastikan file CSV ini diunggah ke GitHub bersama app.py
+    # Pastikan file CSV ini ada di folder yang sama saat di GitHub
     df = pd.read_csv('Dataset Klasifikasi - Copy.csv', sep=';', encoding='latin1')
     df.columns = df.columns.str.strip().str.lower()
-    
-    # Pembersihan dasar
+
     for col in df.columns:
         if df[col].dtype == 'object':
             df[col] = df[col].astype(str).str.strip().str.lower()
 
     df['age'] = df['age'].replace(['nan', '(blanks)', 'none'], 'tidak diketahui')
-    df['kecepatan'] = pd.to_numeric(df['kecepatan'], errors='coerce').fillna(df[df['kecepatan'].notnull()]['kecepatan'].median() if 'kecepatan' in df.columns else 40)
+    df['kecepatan'] = pd.to_numeric(df['kecepatan'], errors='coerce').fillna(40)
 
     selected_features = [
         'cuaca', 'tipe cahaya', 'direction', 'kelas jalan',
@@ -38,39 +36,29 @@ def load_data_and_train():
 
     X_train, _, y_train, _ = train_test_split(X_model, y_model, test_size=0.2, stratify=y_model, random_state=42)
 
-    # Model A: SMOTETomek
     smt = SMOTETomek(random_state=42)
     X_res, y_res = smt.fit_resample(X_train, y_train)
     m_smote = RandomForestClassifier(n_estimators=500, max_depth=12, class_weight='balanced', random_state=42)
     m_smote.fit(X_res, y_res)
 
-    # Model B: Balanced RF
     m_brf = BalancedRandomForestClassifier(n_estimators=300, max_depth=10, sampling_strategy='all', random_state=42)
     m_brf.fit(X_train, y_train)
 
     return m_smote, m_brf, fitur_cols, df, selected_features
 
-# Load data & model
 with st.spinner('Menginisialisasi AI...'):
     model_smote, model_brf, fitur_model, df_raw, features = load_data_and_train()
 
-# UI Header
 st.markdown("<div style='background: linear-gradient(135deg, #f1c40f 0%, #f39c12 100%); padding: 20px; border-radius: 15px; text-align: center; color: #2c3e50;'><h1>🚗 Accident Risk Predictor</h1><p>Estimasi Tingkat Keparahan Kecelakaan Kab. Gresik</p></div>", unsafe_allow_html=True)
 
-# Sidebar
 st.sidebar.header("📝 Input Parameter")
 inputs = {}
 for col in features:
-    # Logika perbaikan: Cek tipe data secara eksplisit agar tidak salah membuat slider
-    if df_raw[col].dtype == 'object' or col != 'kecepatan':
-        if df_raw[col].dtype != 'int64' and df_raw[col].dtype != 'float64':
-            inputs[col] = st.sidebar.selectbox(col.replace('_',' ').title(), sorted(df_raw[col].unique()))
-        else:
-            inputs[col] = st.sidebar.slider(col.title(), int(df_raw[col].min()), int(df_raw[col].max()), int(df_raw[col].median()))
+    if df_raw[col].dtype == 'object':
+        inputs[col] = st.sidebar.selectbox(col.replace('_',' ').title(), sorted(df_raw[col].unique()))
     else:
         inputs[col] = st.sidebar.slider(col.title(), int(df_raw[col].min()), int(df_raw[col].max()), int(df_raw[col].median()))
 
-# Main Predict Logic
 st.write(" ")
 if st.button("PREDIKSI RISIKO", use_container_width=True):
     data_in = pd.DataFrame([inputs])
