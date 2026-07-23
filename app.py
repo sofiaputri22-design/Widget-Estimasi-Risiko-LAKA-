@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from imblearn.ensemble import BalancedRandomForestClassifier
@@ -12,10 +13,17 @@ st.set_page_config(page_title='Accident Risk Predictor', layout='wide')
 
 @st.cache_resource
 def load_data_and_train():
-    # Pastikan file CSV ini ada di folder yang sama saat di GitHub
-    df = pd.read_csv('Dataset Klasifikasi - Copy.csv', sep=';', encoding='latin1')
+    # Cek keberadaan file
+    file_path = 'Dataset Klasifikasi - Copy.csv'
+    if not os.path.exists(file_path):
+        st.error(f"File '{file_path}' tidak ditemukan! Pastikan file sudah diunggah ke GitHub.")
+        st.stop()
+
+    # Load Data
+    df = pd.read_csv(file_path, sep=';', encoding='latin1')
     df.columns = df.columns.str.strip().str.lower()
 
+    # Basic Cleaning
     for col in df.columns:
         if df[col].dtype == 'object':
             df[col] = df[col].astype(str).str.strip().str.lower()
@@ -30,18 +38,28 @@ def load_data_and_train():
         'atribut_keselamatan', 'kepemilikan_sim'
     ]
 
+    # Pastikan target clean
+    df = df.dropna(subset=['jenis luka'])
+
     X_model = pd.get_dummies(df[selected_features], dtype=int)
     y_model = df['jenis luka']
     fitur_cols = X_model.columns
 
-    X_train, _, y_train, _ = train_test_split(X_model, y_model, test_size=0.2, stratify=y_model, random_state=42)
+    # Train Test Split dengan penanganan error stratifikasi
+    try:
+        X_train, _, y_train, _ = train_test_split(X_model, y_model, test_size=0.2, stratify=y_model, random_state=42)
+    except:
+        X_train, _, y_train, _ = train_test_split(X_model, y_model, test_size=0.2, random_state=42)
 
+    # Balancing
     smt = SMOTETomek(random_state=42)
     X_res, y_res = smt.fit_resample(X_train, y_train)
+
+    # Modeling
     m_smote = RandomForestClassifier(n_estimators=500, max_depth=12, class_weight='balanced', random_state=42)
     m_smote.fit(X_res, y_res)
 
-    m_brf = BalancedRandomForestClassifier(n_estimators=300, max_depth=10, sampling_strategy='all', random_state=42)
+    m_brf = BalancedRandomForestClassifier(n_estimators=300, max_depth=10, sampling_strategy='all', replacement=True, random_state=42)
     m_brf.fit(X_train, y_train)
 
     return m_smote, m_brf, fitur_cols, df, selected_features
@@ -55,7 +73,8 @@ st.sidebar.header("📝 Input Parameter")
 inputs = {}
 for col in features:
     if df_raw[col].dtype == 'object':
-        inputs[col] = st.sidebar.selectbox(col.replace('_',' ').title(), sorted(df_raw[col].unique()))
+        options = sorted(df_raw[col].unique())
+        inputs[col] = st.sidebar.selectbox(col.replace('_',' ').title(), options)
     else:
         inputs[col] = st.sidebar.slider(col.title(), int(df_raw[col].min()), int(df_raw[col].max()), int(df_raw[col].median()))
 
@@ -75,7 +94,8 @@ if st.button("PREDIKSI RISIKO", use_container_width=True):
     p_boost = np.array([p_comb[0]*1.3, p_comb[1]*2.0, p_comb[2]*1.1])
     p_final = p_boost / np.sum(p_boost)
 
-    res = dict(zip(model_smote.classes_, p_final))
+    classes = model_smote.classes_
+    res = dict(zip(classes, p_final))
 
     c1, c2 = st.columns(2)
     with c1:
@@ -85,5 +105,5 @@ if st.button("PREDIKSI RISIKO", use_container_width=True):
     with c2:
         st.subheader("🎯 Visualisasi")
         fig, ax = plt.subplots()
-        ax.pie(p_final, labels=[c.upper() for c in model_smote.classes_], autopct='%1.1f%%', colors=['#f39c12', '#e74c3c', '#27ae60'])
+        ax.pie(p_final, labels=[c.upper() for c in classes], autopct='%1.1f%%', colors=['#f39c12', '#e74c3c', '#27ae60'])
         st.pyplot(fig)
